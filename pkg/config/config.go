@@ -47,16 +47,17 @@ func (f *FlexibleStringSlice) UnmarshalJSON(data []byte) error {
 }
 
 type Config struct {
-	Agents    AgentsConfig    `json:"agents"`
-	Bindings  []AgentBinding  `json:"bindings,omitempty"`
-	Session   SessionConfig   `json:"session,omitempty"`
-	Channels  ChannelsConfig  `json:"channels"`
-	Providers ProvidersConfig `json:"providers,omitempty"`
-	ModelList []ModelConfig   `json:"model_list"` // New model-centric provider configuration
-	Gateway   GatewayConfig   `json:"gateway"`
-	Tools     ToolsConfig     `json:"tools"`
-	Heartbeat HeartbeatConfig `json:"heartbeat"`
-	Devices   DevicesConfig   `json:"devices"`
+	Agents       AgentsConfig       `json:"agents"`
+	Bindings     []AgentBinding     `json:"bindings,omitempty"`
+	Session      SessionConfig      `json:"session,omitempty"`
+	Channels     ChannelsConfig     `json:"channels"`
+	Providers    ProvidersConfig    `json:"providers,omitempty"`
+	ModelList    []ModelConfig      `json:"model_list"` // New model-centric provider configuration
+	Gateway      GatewayConfig      `json:"gateway"`
+	Tools        ToolsConfig        `json:"tools"`
+	Heartbeat    HeartbeatConfig    `json:"heartbeat"`
+	Devices      DevicesConfig      `json:"devices"`
+	EmailWebhook EmailWebhookConfig `json:"email_webhook,omitempty"`
 }
 
 // MarshalJSON implements custom JSON marshaling for Config
@@ -410,6 +411,11 @@ func (c *ModelConfig) Validate() error {
 type GatewayConfig struct {
 	Host string `json:"host" env:"PICOCLAW_GATEWAY_HOST"`
 	Port int    `json:"port" env:"PICOCLAW_GATEWAY_PORT"`
+}
+
+type EmailWebhookConfig struct {
+	Enabled bool   `json:"enabled" env:"PICOCLAW_EMAIL_WEBHOOK_ENABLED"`
+	Secret  string `json:"secret"  env:"PICOCLAW_EMAIL_WEBHOOK_SECRET"`
 }
 
 type BraveConfig struct {

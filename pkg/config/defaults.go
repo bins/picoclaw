@@ -312,5 +312,9 @@ func DefaultConfig() *Config {
 			Enabled:    false,
 			MonitorUSB: true,
 		},
+		EmailWebhook: EmailWebhookConfig{
+			Enabled: false,
+			Secret:  "",
+		},
 	}
 }
