@@ -404,64 +404,6 @@ type antigravityJSONResponse struct {
 	} `json:"usageMetadata"`
 }
 
-func (p *AntigravityProvider) parseJSONResponse(body []byte) (*LLMResponse, error) {
-	var resp antigravityJSONResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("parsing antigravity response: %w", err)
-	}
-
-	if len(resp.Candidates) == 0 {
-		return nil, fmt.Errorf("antigravity: no candidates in response")
-	}
-
-	candidate := resp.Candidates[0]
-	var contentParts []string
-	var toolCalls []ToolCall
-
-	for _, part := range candidate.Content.Parts {
-		if part.Text != "" {
-			contentParts = append(contentParts, part.Text)
-		}
-		if part.FunctionCall != nil {
-			argumentsJSON, _ := json.Marshal(part.FunctionCall.Args)
-			toolCalls = append(toolCalls, ToolCall{
-				ID:        fmt.Sprintf("call_%s_%d", part.FunctionCall.Name, time.Now().UnixNano()),
-				Name:      part.FunctionCall.Name,
-				Arguments: part.FunctionCall.Args,
-				Function: &FunctionCall{
-					Name:             part.FunctionCall.Name,
-					Arguments:        string(argumentsJSON),
-					ThoughtSignature: extractPartThoughtSignature(part.ThoughtSignature, part.ThoughtSignatureSnake),
-				},
-			})
-		}
-	}
-
-	finishReason := "stop"
-	if len(toolCalls) > 0 {
-		finishReason = "tool_calls"
-	}
-	if candidate.FinishReason == "MAX_TOKENS" {
-		finishReason = "length"
-	}
-
-	var usage *UsageInfo
-	if resp.UsageMetadata.TotalTokenCount > 0 {
-		usage = &UsageInfo{
-			PromptTokens:     resp.UsageMetadata.PromptTokenCount,
-			CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      resp.UsageMetadata.TotalTokenCount,
-		}
-	}
-
-	return &LLMResponse{
-		Content:      strings.Join(contentParts, ""),
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		Usage:        usage,
-	}, nil
-}
-
 func (p *AntigravityProvider) parseSSEResponse(body string) (*LLMResponse, error) {
 	var contentParts []string
 	var toolCalls []ToolCall
@@ -698,7 +640,10 @@ func FetchAntigravityProjectID(accessToken string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading loadCodeAssist response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("loadCodeAssist failed: %s", string(body))
 	}
@@ -739,7 +684,10 @@ func FetchAntigravityModels(accessToken, projectID string) ([]AntigravityModelIn
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading fetchAvailableModels response: %w", err)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf(
 			"fetchAvailableModels failed (HTTP %d): %s",

@@ -8,7 +8,7 @@
 
 <p>
 <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
-<img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20RISC--V-blue" alt="Hardware">
+<img src="https://img.shields.io/badge/Arch-x86__64%2C%20ARM64%2C%20MIPS%2C%20RISC--V-blue" alt="Hardware">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
@@ -49,7 +49,7 @@
 
 ⚡️ **超高速**: 起動時間 400 倍高速、0.6GHz シングルコアでも 1 秒で起動。
 
-🌍 **真のポータビリティ**: RISC-V、ARM、x86 対応の単一バイナリ。ワンクリックで Go！
+🌍 **真のポータビリティ**: RISC-V、ARM、MIPS、x86 対応の単一バイナリ。ワンクリックで Go！
 
 🤖 **AI ブートストラップ**: 自律的な Go ネイティブ実装 — コアの 95% が AI 生成、人間によるレビュー付き。
 
@@ -126,35 +126,43 @@ Docker Compose を使えば、ローカルにインストールせずに PicoCla
 git clone https://github.com/sipeed/picoclaw.git
 cd picoclaw
 
-# 2. API キーを設定
-cp config/config.example.json config/config.json
-vim config/config.json      # DISCORD_BOT_TOKEN, プロバイダーの API キーを設定
+# 2. 初回起動 — docker/data/config.json を自動生成して終了
+docker compose -f docker/docker-compose.yml --profile gateway up
+# コンテナが "First-run setup complete." を表示して停止します。
 
-# 3. ビルドと起動
-docker compose --profile gateway up -d
+# 3. API キーを設定
+vim docker/data/config.json   # プロバイダー API キー、Bot トークンなどを設定
 
-# 4. ログ確認
-docker compose logs -f picoclaw-gateway
+# 4. 起動
+docker compose -f docker/docker-compose.yml --profile gateway up -d
+```
 
-# 5. 停止
-docker compose --profile gateway down
+> [!TIP]
+> **Docker ユーザー**: デフォルトでは、Gateway は `127.0.0.1` でリッスンしており、ホストからアクセスできません。ヘルスチェックエンドポイントにアクセスしたり、ポートを公開したりする必要がある場合は、環境変数で `PICOCLAW_GATEWAY_HOST=0.0.0.0` を設定するか、`config.json` を更新してください。
+
+```bash
+# 5. ログ確認
+docker compose -f docker/docker-compose.yml logs -f picoclaw-gateway
+
+# 6. 停止
+docker compose -f docker/docker-compose.yml --profile gateway down
 ```
 
 ### Agent モード（ワンショット）
 
 ```bash
 # 質問を投げる
-docker compose run --rm picoclaw-agent -m "What is 2+2?"
+docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "What is 2+2?"
 
 # インタラクティブモード
-docker compose run --rm picoclaw-agent
+docker compose -f docker/docker-compose.yml run --rm picoclaw-agent
 ```
 
-### リビルド
+### アップデート
 
 ```bash
-docker compose --profile gateway build --no-cache
-docker compose --profile gateway up -d
+docker compose -f docker/docker-compose.yml pull
+docker compose -f docker/docker-compose.yml --profile gateway up -d
 ```
 
 ### 🚀 クイックスタート（ネイティブ）
@@ -162,7 +170,7 @@ docker compose --profile gateway up -d
 > [!TIP]
 > `~/.picoclaw/config.json` に API キーを設定してください。
 > API キーの取得先: [OpenRouter](https://openrouter.ai/keys) (LLM) · [Zhipu](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) (LLM)
-> Web 検索は **任意** です - 無料の [Brave Search API](https://brave.com/search/api) (月 2000 クエリ無料)
+> Web 検索は **任意** です - 無料の [Tavily API](https://tavily.com) (月 1000 クエリ無料) または [Brave Search API](https://brave.com/search/api) (月 2000 クエリ無料)
 
 **1. 初期化**
 
@@ -179,12 +187,13 @@ picoclaw onboard
       "model_name": "gpt4",
       "model": "openai/gpt-5.2",
       "api_key": "sk-your-openai-key",
+      "request_timeout": 300,
       "api_base": "https://api.openai.com/v1"
     }
   ],
   "agents": {
     "defaults": {
-      "model": "gpt4"
+      "model_name": "gpt4"
     }
   },
   "channels": {
@@ -193,14 +202,37 @@ picoclaw onboard
       "token": "YOUR_TELEGRAM_BOT_TOKEN",
       "allow_from": []
     }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "api_key": "YOUR_BRAVE_API_KEY",
+        "max_results": 5
+      },
+      "tavily": {
+        "enabled": false,
+        "api_key": "YOUR_TAVILY_API_KEY",
+        "max_results": 5
+      }
+    },
+    "cron": {
+      "exec_timeout_minutes": 5
+    }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 30
   }
 }
 ```
 
+> **新機能**: `model_list` 形式により、プロバイダーをコード変更なしで追加できます。詳細は [モデル設定](#モデル設定-model_list) を参照してください。
+> `request_timeout` は任意の秒単位設定です。省略または `<= 0` の場合、PicoClaw はデフォルトのタイムアウト（120秒）を使用します。
+
 **3. API キーの取得**
 
-- **LLM プロバイダー**: [OpenRouter](https://openrouter.ai/keys) · [Zhipu](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) · [Anthropic](https://console.anthropic.com) · [OpenAI](https://platform.openai.com) · [Gemini](https://aistudio.google.com/api-keys) · [Qwen](https://dashscope.console.aliyun.com)
-- **Web 検索**（任意）: [Brave Search](https://brave.com/search/api) - 無料枠あり（月 2000 リクエスト）
+- **LLM プロバイダー**: [OpenRouter](https://openrouter.ai/keys) · [Zhipu](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) · [Anthropic](https://console.anthropic.com) · [OpenAI](https://platform.openai.com) · [Gemini](https://aistudio.google.com/api-keys)
+- **Web 検索**（任意）: [Tavily](https://tavily.com) - AI エージェント向けに最適化 (月 1000 リクエスト) · [Brave Search](https://brave.com/search/api) - 無料枠あり（月 2000 リクエスト）
 
 > **注意**: 完全な設定テンプレートは `config.example.json` を参照してください。
 
@@ -225,7 +257,7 @@ Telegram、Discord、QQ、DingTalk、LINE、WeCom で PicoClaw と会話でき�
 | **QQ** | 簡単（AppID + AppSecret） |
 | **DingTalk** | 普通（アプリ認証情報） |
 | **LINE** | 普通（認証情報 + Webhook URL） |
-| **WeCom** | 普通（CorpID + Webhook設定） |
+| **WeCom AI Bot** | 普通（Token + AES キー） |
 
 <details>
 <summary><b>Telegram</b>（推奨）</summary>
@@ -389,8 +421,6 @@ picoclaw gateway
       "enabled": true,
       "channel_secret": "YOUR_CHANNEL_SECRET",
       "channel_access_token": "YOUR_CHANNEL_ACCESS_TOKEN",
-      "webhook_host": "0.0.0.0",
-      "webhook_port": 18791,
       "webhook_path": "/webhook/line",
       "allow_from": []
     }
@@ -404,10 +434,12 @@ LINE の Webhook には HTTPS が必要です。リバースプロキシまた�
 
 ```bash
 # ngrok の例
-ngrok http 18791
+ngrok http 18790
 ```
 
 LINE Developers Console で Webhook URL を `https://あなたのドメイン/webhook/line` に設定し、**Webhook の利用** を有効にしてください。
+
+> **注意**: LINE の Webhook は共有の Gateway HTTP サーバー（デフォルト: `127.0.0.1:18790`）で提供されます。ホストからアクセスする場合は Gateway のポートを公開するか、リバースプロキシを設定してください。
 
 **4. 起動**
 
@@ -417,19 +449,20 @@ picoclaw gateway
 
 > グループチャットでは @メンション時のみ応答します。返信は元メッセージを引用する形式です。
 
-> **Docker Compose**: `picoclaw-gateway` サービスに `ports: ["18791:18791"]` を追加して Webhook ポートを公開してください。
+> **Docker Compose**: Gateway HTTP サーバーは共有の `127.0.0.1:18790` で Webhook を提供します。ホストからアクセスするには `picoclaw-gateway` サービスに `ports: ["18790:18790"]` を追加してください。
 
 </details>
 
 <details>
 <summary><b>WeCom (企業微信)</b></summary>
 
-PicoClaw は2種類の WeCom 統合をサポートしています：
+PicoClaw は3種類の WeCom 統合をサポートしています：
 
-**オプション1: WeCom Bot (智能ロボット)** - 簡単な設定、グループチャット対応
-**オプション2: WeCom App (自作アプリ)** - より多機能、アクティブメッセージング対応
+**オプション1: WeCom Bot (ロボット)** - 簡単な設定、グループチャット対応
+**オプション2: WeCom App (カスタムアプリ)** - より多機能、アクティブメッセージング対応、プライベートチャットのみ
+**オプション3: WeCom AI Bot (スマートボット)** - 公式 AI Bot、ストリーミング返信、グループ・プライベート両対応
 
-詳細な設定手順は [WeCom App Configuration Guide](docs/wecom-app-configuration.md) を参照してください。
+詳細な設定手順は [WeCom AI Bot Configuration Guide](docs/channels/wecom/wecom_aibot/README.zh.md) を参照してください。
 
 **クイックセットアップ - WeCom Bot:**
 
@@ -448,13 +481,13 @@ PicoClaw は2種類の WeCom 統合をサポートしています：
       "token": "YOUR_TOKEN",
       "encoding_aes_key": "YOUR_ENCODING_AES_KEY",
       "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY",
-      "webhook_host": "0.0.0.0",
-      "webhook_port": 18793,
       "webhook_path": "/webhook/wecom",
       "allow_from": []
     }
   }
 }
+
+> **注意**: WeCom Bot の Webhook 受信は共有の Gateway HTTP サーバー（デフォルト: `127.0.0.1:18790`）で提供されます。ホストからアクセスする場合は Gateway のポートを公開するか、HTTPS 用のリバースプロキシを設定してください。
 ```
 
 **クイックセットアップ - WeCom App:**
@@ -468,7 +501,7 @@ PicoClaw は2種類の WeCom 統合をサポートしています：
 **2. メッセージ受信を設定**
 
 * アプリ詳細で "メッセージを受信" → "APIを設定" をクリック
-* URL を `http://your-server:18792/webhook/wecom-app` に設定
+* URL を `http://your-server:18790/webhook/wecom-app` に設定
 * **Token** と **EncodingAESKey** を生成
 
 **3. 設定**
@@ -483,8 +516,6 @@ PicoClaw は2種類の WeCom 統合をサポートしています：
       "agent_id": 1000002,
       "token": "YOUR_TOKEN",
       "encoding_aes_key": "YOUR_ENCODING_AES_KEY",
-      "webhook_host": "0.0.0.0",
-      "webhook_port": 18792,
       "webhook_path": "/webhook/wecom-app",
       "allow_from": []
     }
@@ -498,13 +529,71 @@ PicoClaw は2種類の WeCom 統合をサポートしています：
 picoclaw gateway
 ```
 
-> **注意**: WeCom App は Webhook コールバック用にポート 18792 を開放する必要があります。本番環境では HTTPS 用のリバースプロキシを使用してください。
+> **注意**: WeCom App の Webhook コールバックは共有の Gateway HTTP サーバー（デフォルト: `127.0.0.1:18790`）で提供されます。ホストからアクセスする場合は HTTPS 用のリバースプロキシを設定してください。
+
+**クイックセットアップ - WeCom AI Bot:**
+
+**1. AI Bot を作成**
+
+* WeCom 管理コンソール → アプリ管理 → AI Bot
+* コールバック URL を設定: `http://your-server:18791/webhook/wecom-aibot`
+* **Token** をコピーし、**EncodingAESKey** を生成
+
+**2. 設定**
+
+```json
+{
+  "channels": {
+    "wecom_aibot": {
+      "enabled": true,
+      "token": "YOUR_TOKEN",
+      "encoding_aes_key": "YOUR_43_CHAR_ENCODING_AES_KEY",
+      "webhook_path": "/webhook/wecom-aibot",
+      "allow_from": [],
+      "welcome_message": "こんにちは！何かお手伝いできますか？"
+    }
+  }
+}
+```
+
+**3. 起動**
+
+```bash
+picoclaw gateway
+```
+
+> **注意**: WeCom AI Bot はストリーミングプルプロトコルを使用 — 返信タイムアウトの心配なし。長時間タスク（>30秒）は自動的に `response_url` によるプッシュ配信に切り替わります。
 
 </details>
 
 ## ⚙️ 設定
 
 設定ファイル: `~/.picoclaw/config.json`
+
+### 環境変数
+
+環境変数を使用してデフォルトのパスを上書きできます。これは、ポータブルインストール、コンテナ化されたデプロイメント、または picoclaw をシステムサービスとして実行する場合に便利です。これらの変数は独立しており、異なるパスを制御します。
+
+| 変数              | 説明                                                                                                                             | デフォルトパス            |
+|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------|---------------------------|
+| `PICOCLAW_CONFIG` | 設定ファイルへのパスを上書きします。これにより、picoclaw は他のすべての場所を無視して、指定された `config.json` をロードします。 | `~/.picoclaw/config.json` |
+| `PICOCLAW_HOME`   | picoclaw データのルートディレクトリを上書きします。これにより、`workspace` やその他のデータディレクトリのデフォルトの場所が変更されます。          | `~/.picoclaw`             |
+
+**例：**
+
+```bash
+# 特定の設定ファイルを使用して picoclaw を実行する
+# ワークスペースのパスはその設定ファイル内から読み込まれます
+PICOCLAW_CONFIG=/etc/picoclaw/production.json picoclaw gateway
+
+# すべてのデータを /opt/picoclaw に保存して picoclaw を実行する
+# 設定はデフォルトの ~/.picoclaw/config.json からロードされます
+# ワークスペースは /opt/picoclaw/workspace に作成されます
+PICOCLAW_HOME=/opt/picoclaw picoclaw agent
+
+# 両方を使用して完全にカスタマイズされたセットアップを行う
+PICOCLAW_HOME=/srv/picoclaw PICOCLAW_CONFIG=/srv/picoclaw/main.json picoclaw gateway
+```
 
 ### ワークスペース構成
 
@@ -696,7 +785,7 @@ HEARTBEAT_OK 応答         ユーザーが直接結果を受け取る
 ### プロバイダー
 
 > [!NOTE]
-> Groq は Whisper による無料の音声文字起こしを提供しています。設定すると、Telegram の音声メッセージが自動的に文字起こしされます。
+> Groq は Whisper による無料の音声文字起こしを提供しています。設定すると、あらゆるチャンネルからの音声メッセージがエージェントレベルで自動的に文字起こしされます。
 
 | プロバイダー | 用途 | API キー取得先 |
 | --- | --- | --- |
@@ -894,6 +983,17 @@ HEARTBEAT_OK 応答         ユーザーが直接結果を受け取る
 ```
 > OAuth認証を設定するには、`picoclaw auth login --provider anthropic` を実行してください。
 
+**カスタムプロキシ/API**
+```json
+{
+  "model_name": "my-custom-model",
+  "model": "openai/custom-model",
+  "api_base": "https://my-proxy.com/v1",
+  "api_key": "sk-...",
+  "request_timeout": 300
+}
+```
+
 #### ロードバランシング
 
 同じモデル名で複数のエンドポイントを設定すると、PicoClaw が自動的にラウンドロビンで分散します：
@@ -985,7 +1085,7 @@ Discord: https://discord.gg/V4sAZ9XWpN
 検索 API キーをまだ設定していない場合、これは正常です。PicoClaw は手動検索用の便利なリンクを提供します。
 
 Web 検索を有効にするには：
-1. [https://brave.com/search/api](https://brave.com/search/api) で無料の API キーを取得（月 2000 クエリ無料）
+1. [https://tavily.com](https://tavily.com) (月 1000 クエリ無料) または [https://brave.com/search/api](https://brave.com/search/api) で無料の API キーを取得（月 2000 クエリ無料）
 2. `~/.picoclaw/config.json` に追加：
    ```json
    {
@@ -1023,5 +1123,6 @@ Web 検索を有効にするには：
 | **Zhipu** | 月 200K トークン | 中国ユーザー向け最適 |
 | **Qwen** | 無料枠あり | 通義千問 (Qwen) |
 | **Brave Search** | 月 2000 クエリ | Web 検索機能 |
+| **Tavily** | 月 1000 クエリ | AI エージェント検索最適化 |
 | **Groq** | 無料枠あり | 高速推論（Llama, Mixtral） |
 | **Cerebras** | 無料枠あり | 高速推論（Llama, Qwen など） |
