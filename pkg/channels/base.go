@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -32,6 +33,9 @@ func init() {
 	uniqueIDPrefix = hex.EncodeToString(b[:])
 }
 
+// audioAnnotationRe matches audio/voice annotations injected by channels (e.g. [voice], [audio: file.ogg]).
+var audioAnnotationRe = regexp.MustCompile(`\[(voice|audio)(?::[^\]]*)?\]`)
+
 // uniqueID generates a process-unique ID using a random prefix and an atomic counter.
 // This ID is intended for internal correlation (e.g. media scope keys) and is NOT
 // cryptographically secure — it must not be used in contexts where unpredictability matters.
@@ -44,7 +48,7 @@ type Channel interface {
 	Name() string
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	Send(ctx context.Context, msg bus.OutboundMessage) error
+	Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error)
 	IsRunning() bool
 	IsAllowed(senderID string) bool
 	IsAllowedSender(sender bus.SenderInfo) bool
@@ -108,6 +112,18 @@ func NewBaseChannel(
 	for _, opt := range opts {
 		opt(bc)
 	}
+
+	// Security Audit: Check for open-by-default (unsecured) channels.
+	// PicoClaw aims to be secure-by-default. If allow_from is empty, the bot
+	// currently defaults to accepting messages from ANYONE. To explicitly
+	// acknowledge and permit this (e.g. for a public bot), use ["*"].
+	if len(bc.allowList) == 0 {
+		logger.WarnCF("channels", "SECURITY: Channel allows EVERYONE (allow_from is empty)", map[string]any{
+			"channel": bc.name,
+			"hint":    "Set allow_from to your ID, or use '*' to explicitly acknowledge open access.",
+		})
+	}
+
 	return bc
 }
 
@@ -183,6 +199,9 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 	}
 
 	for _, allowed := range c.allowList {
+		if allowed == "*" {
+			return true
+		}
 		// Strip leading "@" from allowed value for username matching
 		trimmed := strings.TrimPrefix(allowed, "@")
 		allowedID := trimmed
@@ -217,7 +236,7 @@ func (c *BaseChannel) IsAllowedSender(sender bus.SenderInfo) bool {
 	}
 
 	for _, allowed := range c.allowList {
-		if identity.MatchAllowed(sender, allowed) {
+		if allowed == "*" || identity.MatchAllowed(sender, allowed) {
 			return true
 		}
 	}
@@ -271,23 +290,32 @@ func (c *BaseChannel) HandleMessage(
 
 	// Auto-trigger typing indicator, message reaction, and placeholder before publishing.
 	// Each capability is independent — all three may fire for the same message.
+	// Note: even when streaming is available, we still show typing + placeholder on inbound.
+	// If streaming actually activates, preSend will skip the placeholder edit (streamActive map)
+	// and the typing stop will still be called. This avoids the problem of compile-time interface
+	// checks incorrectly skipping indicators when streaming may not work at runtime.
 	if c.owner != nil && c.placeholderRecorder != nil {
-		// Typing — independent pipeline
+		// Typing
 		if tc, ok := c.owner.(TypingCapable); ok {
 			if stop, err := tc.StartTyping(ctx, chatID); err == nil {
 				c.placeholderRecorder.RecordTypingStop(c.name, chatID, stop)
 			}
 		}
-		// Reaction — independent pipeline
+		// Reaction
 		if rc, ok := c.owner.(ReactionCapable); ok && messageID != "" {
 			if undo, err := rc.ReactToMessage(ctx, chatID, messageID); err == nil {
 				c.placeholderRecorder.RecordReactionUndo(c.name, chatID, undo)
 			}
 		}
-		// Placeholder — independent pipeline
-		if pc, ok := c.owner.(PlaceholderCapable); ok {
-			if phID, err := pc.SendPlaceholder(ctx, chatID); err == nil && phID != "" {
-				c.placeholderRecorder.RecordPlaceholder(c.name, chatID, phID)
+		// Placeholder — independent pipeline.
+		// Skip when the message contains audio: the agent will send the
+		// placeholder after transcription completes, so the user sees
+		// "Thinking…" only once the voice has been processed.
+		if !audioAnnotationRe.MatchString(content) {
+			if pc, ok := c.owner.(PlaceholderCapable); ok {
+				if phID, err := pc.SendPlaceholder(ctx, chatID); err == nil && phID != "" {
+					c.placeholderRecorder.RecordPlaceholder(c.name, chatID, phID)
+				}
 			}
 		}
 	}

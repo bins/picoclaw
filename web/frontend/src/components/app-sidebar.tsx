@@ -6,7 +6,10 @@ import {
   IconKey,
   IconListDetails,
   IconMessageCircle,
+  IconSearch,
   IconSettings,
+  IconSparkles,
+  IconTools,
 } from "@tabler/icons-react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import * as React from "react"
@@ -27,6 +30,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { useSidebarChannels } from "@/hooks/use-sidebar-channels"
 
@@ -54,6 +58,10 @@ const baseNavGroups: Omit<NavGroup, "items">[] = [
     defaultOpen: true,
   },
   {
+    label: "navigation.agent_group",
+    defaultOpen: true,
+  },
+  {
     label: "navigation.services",
     defaultOpen: true,
   },
@@ -61,14 +69,24 @@ const baseNavGroups: Omit<NavGroup, "items">[] = [
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const routerState = useRouterState()
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const { isMobile, setOpenMobile } = useSidebar()
   const currentPath = routerState.location.pathname
   const {
     channelItems,
     hasMoreChannels,
     showAllChannels,
     toggleShowAllChannels,
-  } = useSidebarChannels({ t })
+  } = useSidebarChannels({
+    language: (i18n.resolvedLanguage ?? i18n.language ?? "").toLowerCase(),
+    t,
+  })
+
+  const handleNavItemClick = React.useCallback(() => {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }, [isMobile, setOpenMobile])
 
   const navGroups: NavGroup[] = React.useMemo(() => {
     return [
@@ -113,6 +131,29 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       },
       {
         ...baseNavGroups[2],
+        items: [
+          {
+            title: "navigation.hub",
+            url: "/agent/hub",
+            icon: IconSearch,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.skills",
+            url: "/agent/skills",
+            icon: IconSparkles,
+            translateTitle: true,
+          },
+          {
+            title: "navigation.tools",
+            url: "/agent/tools",
+            icon: IconTools,
+            translateTitle: true,
+          },
+        ],
+      },
+      {
+        ...baseNavGroups[3],
         items: [
           {
             title: "navigation.config",
@@ -163,6 +204,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           <SidebarMenuButton
                             asChild
                             isActive={isActive}
+                            onClick={handleNavItemClick}
+                            data-tour={
+                              item.url === "/models" ? "models-nav" : undefined
+                            }
                             className={`h-9 px-3 ${isActive ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
                           >
                             <Link to={item.url}>

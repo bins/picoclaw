@@ -9,6 +9,9 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { cn } from "@/lib/utils"
+
+type FieldLayout = "default" | "setting-row"
 
 interface FieldProps {
   label: string
@@ -16,9 +19,50 @@ interface FieldProps {
   error?: string
   required?: boolean
   children: ReactNode
+  layout?: FieldLayout
+  controlClassName?: string
 }
 
-export function Field({ label, hint, error, required, children }: FieldProps) {
+export function Field({
+  label,
+  hint,
+  error,
+  required,
+  children,
+  layout = "default",
+  controlClassName,
+}: FieldProps) {
+  if (layout === "setting-row") {
+    return (
+      <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
+        <div className="w-full min-w-0">
+          <FieldLabel className="leading-relaxed break-words whitespace-normal">
+            {label}
+            {required && <span className="text-destructive ml-1">*</span>}
+          </FieldLabel>
+          {hint && (
+            <FieldDescription className="mt-1 text-xs leading-relaxed break-words whitespace-normal">
+              {hint}
+            </FieldDescription>
+          )}
+        </div>
+        <div
+          className={cn(
+            "w-full md:max-w-[28rem] md:justify-self-end",
+            controlClassName,
+          )}
+        >
+          {children}
+        </div>
+        {error && (
+          <FieldDescription className="text-destructive text-xs leading-normal md:col-start-2 md:justify-self-end">
+            {error}
+          </FieldDescription>
+        )}
+      </div>
+    )
+  }
+
   return (
     <UiField className="gap-2.5">
       <div className="space-y-1">
@@ -85,6 +129,8 @@ interface SwitchCardFieldProps {
   ariaLabel?: string
   disabled?: boolean
   children?: ReactNode
+  layout?: FieldLayout
+  transparent?: boolean
 }
 
 export function SwitchCardField({
@@ -96,9 +142,50 @@ export function SwitchCardField({
   ariaLabel,
   disabled,
   children,
+  layout = "default",
+  transparent,
 }: SwitchCardFieldProps) {
+  if (layout === "setting-row") {
+    return (
+      <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
+        <div className="w-full min-w-0">
+          <p className="text-sm leading-relaxed font-medium break-words whitespace-normal">
+            {label}
+          </p>
+          {hint && (
+            <p className="text-muted-foreground mt-1 text-xs leading-relaxed break-words whitespace-normal">
+              {hint}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center md:justify-self-end">
+          <Switch
+            checked={checked}
+            onCheckedChange={onCheckedChange}
+            disabled={disabled}
+            aria-label={ariaLabel ?? label}
+          />
+        </div>
+        {children && (
+          <div className="mt-1 flex w-full justify-end md:col-start-2">
+            <div className="w-full md:max-w-[28rem]">{children}</div>
+          </div>
+        )}
+        {error && (
+          <p className="text-destructive text-xs leading-normal md:col-start-2 md:justify-self-end">
+            {error}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className="border-border/60 bg-background rounded-lg border px-4 py-3">
+    <div
+      className={cn(
+        transparent ? "py-1" : "border-border/60 rounded-lg border px-4 py-3",
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{label}</p>
@@ -115,7 +202,7 @@ export function SwitchCardField({
           aria-label={ariaLabel ?? label}
         />
       </div>
-      {children && <div className="mt-3">{children}</div>}
+      {children && <div className="mt-4">{children}</div>}
       {error && (
         <p className="text-destructive mt-2 text-xs leading-normal">{error}</p>
       )}

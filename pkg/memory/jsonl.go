@@ -86,14 +86,14 @@ func (s *JSONLStore) metaPath(key string) string {
 
 // sanitizeKey converts a session key to a safe filename component.
 // Mirrors pkg/session.sanitizeFilename so that migration paths match.
-//
-// Note: this is a lossy mapping — "telegram:123" and "telegram_123"
-// both produce the same filename. This is an intentional tradeoff:
-// keys with colons (e.g. from channels) are by far the common case,
-// and a bidirectional encoding (like URL-encoding) would complicate
-// file listings and debugging.
+// Replaces ':' with '_' (session key separator) and '/' and '\' with '_'
+// so composite IDs (e.g. Telegram forum "chatID/threadID", Slack "channel/thread_ts")
+// do not create subdirectories or break on Windows.
 func sanitizeKey(key string) string {
-	return strings.ReplaceAll(key, ":", "_")
+	s := strings.ReplaceAll(key, ":", "_")
+	s = strings.ReplaceAll(s, "/", "_")
+	s = strings.ReplaceAll(s, "\\", "_")
+	return s
 }
 
 // readMeta loads the metadata file for a session.
@@ -453,6 +453,33 @@ func (s *JSONLStore) rewriteJSONL(
 		buf.WriteByte('\n')
 	}
 	return fileutil.WriteFileAtomic(s.jsonlPath(sessionKey), buf.Bytes(), 0o644)
+}
+
+// ListSessions returns all known session keys by reading .meta.json files.
+func (s *JSONLStore) ListSessions() []string {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil
+	}
+	var keys []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
+			continue
+		}
+		// Read the meta file to get the original key
+		data, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var meta sessionMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		if meta.Key != "" {
+			keys = append(keys, meta.Key)
+		}
+	}
+	return keys
 }
 
 func (s *JSONLStore) Close() error {
