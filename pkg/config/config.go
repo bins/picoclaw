@@ -35,7 +35,6 @@ type Config struct {
 	Version      int                `json:"version"                 yaml:"-"`
 	Isolation    IsolationConfig    `json:"isolation,omitempty"     yaml:"-"`
 	Agents       AgentsConfig       `json:"agents"                  yaml:"-"`
-	Bindings     []AgentBinding     `json:"bindings,omitempty"      yaml:"-"`
 	Session      SessionConfig      `json:"session,omitempty"       yaml:"-"`
 	Channels     ChannelsConfig     `json:"channel_list"            yaml:"channel_list"`
 	ModelList    SecureModelList    `json:"model_list"              yaml:"model_list"` // New model-centric provider configuration

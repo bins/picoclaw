@@ -416,6 +416,7 @@ func setupAndStartServices(
 
 	runningServices.authToken = authToken
 	runningServices.HealthServer = health.NewServer(listenResult.ProbeHost, cfg.Gateway.Port, authToken)
+	runHealthExtensions(runningServices.HealthServer, cfg, cfg.WorkspacePath())
 
 	var listenAddr string
 	if len(listenResult.Listeners) > 0 {

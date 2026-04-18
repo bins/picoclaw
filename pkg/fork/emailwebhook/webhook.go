@@ -1,4 +1,4 @@
-package channels
+package emailwebhook
 
 import (
 	"encoding/json"
@@ -9,32 +9,33 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/gateway"
 	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
-// EmailWebhookHandler receives email notifications via POST /webhook/email and
-// appends them as JSONL records to a daily file under {workspace}/emails/.
-type EmailWebhookHandler struct {
+func init() {
+	gateway.RegisterHealthExtension(register)
+}
+
+func register(server *health.Server, cfg *config.Config, workspace string) {
+	if !cfg.EmailWebhook.Enabled {
+		return
+	}
+	h := &handler{
+		cfg:      cfg,
+		emailDir: filepath.Join(workspace, "emails"),
+	}
+	server.RegisterHandler("/webhook/email", h.serve)
+	logger.InfoCF("email", "Email webhook registered at /webhook/email", nil)
+}
+
+type handler struct {
 	cfg      *config.Config
 	emailDir string
 }
 
-// NewEmailWebhookHandler creates a handler that stores incoming emails under
-// {workspace}/emails/YYYY-MM-DD.jsonl.
-func NewEmailWebhookHandler(cfg *config.Config, workspace string) *EmailWebhookHandler {
-	return &EmailWebhookHandler{
-		cfg:      cfg,
-		emailDir: filepath.Join(workspace, "emails"),
-	}
-}
-
-// Register mounts the /webhook/email route on the provided health server.
-func (h *EmailWebhookHandler) Register(server *health.Server) {
-	server.RegisterHandler("/webhook/email", h.handle)
-}
-
-func (h *EmailWebhookHandler) handle(w http.ResponseWriter, r *http.Request) {
+func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
@@ -70,14 +71,12 @@ func (h *EmailWebhookHandler) handle(w http.ResponseWriter, r *http.Request) {
 	date := time.Now().Format("2006-01-02")
 	filePath := filepath.Join(h.emailDir, date+".jsonl")
 
-	type emailRecord struct {
+	record := struct {
 		ReceivedAt string `json:"received_at"`
 		From       string `json:"from"`
 		Subject    string `json:"subject"`
 		Content    string `json:"content"`
-	}
-
-	record := emailRecord{
+	}{
 		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
 		From:       msg.From,
 		Subject:    msg.Subject,
