@@ -14,6 +14,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/auth"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 const (
@@ -221,7 +222,7 @@ func (p *AntigravityProvider) buildRequest(
 			}
 		case "user":
 			if msg.ToolCallID != "" {
-				toolName := resolveToolResponseName(msg.ToolCallID, toolCallNames)
+				toolName := common.ResolveToolResponseName(msg.ToolCallID, toolCallNames)
 				// Tool result
 				req.Contents = append(req.Contents, antigravityContent{
 					Role: "user",
@@ -248,7 +249,7 @@ func (p *AntigravityProvider) buildRequest(
 				content.Parts = append(content.Parts, antigravityPart{Text: msg.Content})
 			}
 			for _, tc := range msg.ToolCalls {
-				toolName, toolArgs, thoughtSignature := normalizeStoredToolCall(tc)
+				toolName, toolArgs, thoughtSignature := common.NormalizeStoredToolCall(tc)
 				if toolName == "" {
 					logger.WarnCF(
 						"provider.antigravity",
@@ -275,7 +276,7 @@ func (p *AntigravityProvider) buildRequest(
 				req.Contents = append(req.Contents, content)
 			}
 		case "tool":
-			toolName := resolveToolResponseName(msg.ToolCallID, toolCallNames)
+			toolName := common.ResolveToolResponseName(msg.ToolCallID, toolCallNames)
 			req.Contents = append(req.Contents, antigravityContent{
 				Role: "user",
 				Parts: []antigravityPart{{
@@ -290,18 +291,17 @@ func (p *AntigravityProvider) buildRequest(
 		}
 	}
 
-	// Build tools (sanitize schemas for Gemini compatibility)
+	// Build tools
 	if len(tools) > 0 {
 		var funcDecls []antigravityFuncDecl
 		for _, t := range tools {
 			if t.Type != "function" {
 				continue
 			}
-			params := sanitizeSchemaForGemini(t.Function.Parameters)
 			funcDecls = append(funcDecls, antigravityFuncDecl{
 				Name:        t.Function.Name,
 				Description: t.Function.Description,
-				Parameters:  params,
+				Parameters:  t.Function.Parameters,
 			})
 		}
 		if len(funcDecls) > 0 {
@@ -326,60 +326,6 @@ func (p *AntigravityProvider) buildRequest(
 	}
 
 	return req
-}
-
-func normalizeStoredToolCall(tc ToolCall) (string, map[string]any, string) {
-	name := tc.Name
-	args := tc.Arguments
-	thoughtSignature := ""
-
-	if name == "" && tc.Function != nil {
-		name = tc.Function.Name
-		thoughtSignature = tc.Function.ThoughtSignature
-	} else if tc.Function != nil {
-		thoughtSignature = tc.Function.ThoughtSignature
-	}
-
-	if args == nil {
-		args = map[string]any{}
-	}
-
-	if len(args) == 0 && tc.Function != nil && tc.Function.Arguments != "" {
-		var parsed map[string]any
-		if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil && parsed != nil {
-			args = parsed
-		}
-	}
-
-	return name, args, thoughtSignature
-}
-
-func resolveToolResponseName(toolCallID string, toolCallNames map[string]string) string {
-	if toolCallID == "" {
-		return ""
-	}
-
-	if name, ok := toolCallNames[toolCallID]; ok && name != "" {
-		return name
-	}
-
-	return inferToolNameFromCallID(toolCallID)
-}
-
-func inferToolNameFromCallID(toolCallID string) string {
-	if !strings.HasPrefix(toolCallID, "call_") {
-		return toolCallID
-	}
-
-	rest := strings.TrimPrefix(toolCallID, "call_")
-	if idx := strings.LastIndex(rest, "_"); idx > 0 {
-		candidate := rest[:idx]
-		if candidate != "" {
-			return candidate
-		}
-	}
-
-	return toolCallID
 }
 
 // --- Response parsing ---
@@ -497,71 +443,6 @@ func extractPartThoughtSignature(thoughtSignature string, thoughtSignatureSnake 
 		return thoughtSignatureSnake
 	}
 	return ""
-}
-
-// --- Schema sanitization ---
-
-// Google/Gemini doesn't support many JSON Schema keywords that other providers accept.
-var geminiUnsupportedKeywords = map[string]bool{
-	"patternProperties":    true,
-	"additionalProperties": true,
-	"$schema":              true,
-	"$id":                  true,
-	"$ref":                 true,
-	"$defs":                true,
-	"definitions":          true,
-	"examples":             true,
-	"minLength":            true,
-	"maxLength":            true,
-	"minimum":              true,
-	"maximum":              true,
-	"multipleOf":           true,
-	"pattern":              true,
-	"format":               true,
-	"minItems":             true,
-	"maxItems":             true,
-	"uniqueItems":          true,
-	"minProperties":        true,
-	"maxProperties":        true,
-}
-
-func sanitizeSchemaForGemini(schema map[string]any) map[string]any {
-	if schema == nil {
-		return nil
-	}
-
-	result := make(map[string]any)
-	for k, v := range schema {
-		if geminiUnsupportedKeywords[k] {
-			continue
-		}
-		// Recursively sanitize nested objects
-		switch val := v.(type) {
-		case map[string]any:
-			result[k] = sanitizeSchemaForGemini(val)
-		case []any:
-			sanitized := make([]any, len(val))
-			for i, item := range val {
-				if m, ok := item.(map[string]any); ok {
-					sanitized[i] = sanitizeSchemaForGemini(m)
-				} else {
-					sanitized[i] = item
-				}
-			}
-			result[k] = sanitized
-		default:
-			result[k] = v
-		}
-	}
-
-	// Ensure top-level has type: "object" if properties are present
-	if _, hasProps := result["properties"]; hasProps {
-		if _, hasType := result["type"]; !hasType {
-			result["type"] = "object"
-		}
-	}
-
-	return result
 }
 
 // --- Token source ---

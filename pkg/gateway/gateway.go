@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -26,8 +25,9 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/irc"
 	_ "github.com/sipeed/picoclaw/pkg/channels/line"
 	_ "github.com/sipeed/picoclaw/pkg/channels/maixcam"
+	_ "github.com/sipeed/picoclaw/pkg/channels/mqtt"
 	_ "github.com/sipeed/picoclaw/pkg/channels/onebot"
-	"github.com/sipeed/picoclaw/pkg/channels/pico"
+	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
 	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
 	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
 	_ "github.com/sipeed/picoclaw/pkg/channels/teams_webhook"
@@ -40,6 +40,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/cron"
 	"github.com/sipeed/picoclaw/pkg/devices"
+	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/health"
 	"github.com/sipeed/picoclaw/pkg/heartbeat"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -115,6 +116,7 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
+	startedAt := time.Now()
 	panicPath := filepath.Join(homePath, logPath, panicFile)
 	panicFunc, err := logger.InitPanic(panicPath)
 	if err != nil {
@@ -198,6 +200,8 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
+	msgBus.SetEventPublisher(agentLoop.RuntimeEventBus())
+	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayStart, startedAt, nil)
 
 	fmt.Println("\n📦 Agent Status:")
 	startupInfo := agentLoop.GetStartupInfo()
@@ -217,6 +221,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	if err != nil {
 		return err
 	}
+	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReady, startedAt, nil)
 	closeListeners = false
 
 	// Setup manual reload channel for /reload endpoint
@@ -263,7 +268,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		select {
 		case <-sigChan:
 			logger.Info("Shutting down...")
-			shutdownGateway(runningServices, agentLoop, provider, true)
+			shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
 			return nil
 		case newCfg := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
@@ -313,12 +318,20 @@ func executeReload(
 	msgBus *bus.MessageBus,
 	allowEmptyStartup bool,
 	debug bool,
-) error {
+) (err error) {
+	startedAt := time.Now()
+	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadStarted, startedAt, nil)
 	defer runningServices.reloading.Store(false)
+	defer func() {
+		if err != nil {
+			publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadFailed, startedAt, err)
+			return
+		}
+		publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReloadCompleted, startedAt, nil)
+	}()
 
-	overridePicoToken(newCfg, runningServices.authToken)
-
-	return handleConfigReload(ctx, agentLoop, newCfg, provider, runningServices, msgBus, allowEmptyStartup, debug)
+	err = handleConfigReload(ctx, agentLoop, newCfg, provider, runningServices, msgBus, allowEmptyStartup, debug)
+	return err
 }
 
 func createStartupProvider(
@@ -386,9 +399,12 @@ func setupAndStartServices(
 		fms.Start()
 	}
 
-	overridePicoToken(cfg, authToken)
-
-	runningServices.ChannelManager, err = channels.NewManager(cfg, msgBus, runningServices.MediaStore)
+	runningServices.ChannelManager, err = channels.NewManager(
+		cfg,
+		msgBus,
+		runningServices.MediaStore,
+		channels.WithRuntimeEvents(agentLoop.RuntimeEventBus()),
+	)
 	if err != nil {
 		if fms, ok := runningServices.MediaStore.(*media.FileMediaStore); ok {
 			fms.Stop()
@@ -496,13 +512,20 @@ func shutdownGateway(
 	runningServices *services,
 	agentLoop *agent.AgentLoop,
 	provider providers.LLMProvider,
+	msgBus *bus.MessageBus,
 	fullShutdown bool,
 ) {
+	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayShutdown, time.Time{}, nil)
+
 	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
 		cp.Close()
 	}
 
 	stopAndCleanupServices(runningServices, gracefulShutdownTimeout, false)
+
+	if fullShutdown && msgBus != nil {
+		msgBus.Close()
+	}
 
 	agentLoop.Stop()
 	agentLoop.Close()
@@ -787,23 +810,6 @@ func setupCronTool(
 	}
 
 	return cronService, nil
-}
-
-// overridePicoToken replaces the pico channel token with the one from the PID file.
-// The PID file is the single source of truth for the pico auth token;
-// it is generated once at gateway startup and remains unchanged across reloads.
-func overridePicoToken(cfg *config.Config, token string) {
-	picoBC := cfg.Channels.GetByType(config.ChannelPico)
-	if picoBC == nil || !picoBC.Enabled {
-		return
-	}
-	var picoCfg config.PicoSettings
-	picoBC.Decode(&picoCfg)
-	picoToken := picoCfg.Token.String()
-	if picoToken == "" || strings.HasPrefix(picoToken, pico.PicoTokenPrefix) {
-		return
-	}
-	picoCfg.SetToken(pico.PicoTokenPrefix + token + picoToken)
 }
 
 func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {

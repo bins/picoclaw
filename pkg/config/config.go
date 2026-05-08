@@ -17,6 +17,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg"
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	providercommon "github.com/sipeed/picoclaw/pkg/providers/common"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.
@@ -32,18 +33,19 @@ func init() {
 // Config is the current config structure with version support.
 type Config struct {
 	// Config schema version for migration.
-	Version      int                `json:"version"                 yaml:"-"`
-	Isolation    IsolationConfig    `json:"isolation,omitempty"     yaml:"-"`
-	Agents       AgentsConfig       `json:"agents"                  yaml:"-"`
-	Session      SessionConfig      `json:"session,omitempty"       yaml:"-"`
-	Channels     ChannelsConfig     `json:"channel_list"            yaml:"channel_list"`
-	ModelList    SecureModelList    `json:"model_list"              yaml:"model_list"` // New model-centric provider configuration
-	Gateway      GatewayConfig      `json:"gateway"                 yaml:"-"`
-	Hooks        HooksConfig        `json:"hooks,omitempty"         yaml:"-"`
-	Tools        ToolsConfig        `json:"tools"                   yaml:",inline"`
-	Heartbeat    HeartbeatConfig    `json:"heartbeat"               yaml:"-"`
-	Devices      DevicesConfig      `json:"devices"                 yaml:"-"`
-	Voice        VoiceConfig        `json:"voice"                   yaml:"-"`
+	Version   int             `json:"version"             yaml:"-"`
+	Isolation IsolationConfig `json:"isolation,omitempty" yaml:"-"`
+	Agents    AgentsConfig    `json:"agents"              yaml:"-"`
+	Session   SessionConfig   `json:"session,omitempty"   yaml:"-"`
+	Channels  ChannelsConfig  `json:"channel_list"        yaml:"channel_list"`
+	ModelList SecureModelList `json:"model_list"          yaml:"model_list"` // New model-centric provider configuration
+	Gateway   GatewayConfig   `json:"gateway"             yaml:"-"`
+	Events    EventsConfig    `json:"events,omitempty"    yaml:"-"`
+	Hooks     HooksConfig     `json:"hooks,omitempty"     yaml:"-"`
+	Tools     ToolsConfig     `json:"tools"               yaml:",inline"`
+	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
+	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
+	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
 	EmailWebhook EmailWebhookConfig `json:"email_webhook,omitempty" yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
@@ -248,8 +250,9 @@ type SubTurnConfig struct {
 }
 
 type ToolFeedbackConfig struct {
-	Enabled       bool `json:"enabled"         env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_ENABLED"`
-	MaxArgsLength int  `json:"max_args_length" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH"`
+	Enabled          bool `json:"enabled"           env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_ENABLED"`
+	MaxArgsLength    int  `json:"max_args_length"   env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_MAX_ARGS_LENGTH"`
+	SeparateMessages bool `json:"separate_messages" env:"PICOCLAW_AGENTS_DEFAULTS_TOOL_FEEDBACK_SEPARATE_MESSAGES"`
 }
 
 type AgentDefaults struct {
@@ -276,6 +279,8 @@ type AgentDefaults struct {
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"PICOCLAW_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
 	ContextManager            string             `json:"context_manager,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
 	ContextManagerConfig      json.RawMessage    `json:"context_manager_config,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_CONTEXT_MANAGER_CONFIG"`
+	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
+	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -287,7 +292,7 @@ func (d *AgentDefaults) GetMaxMediaSize() int {
 	return DefaultMaxMediaSize
 }
 
-// GetToolFeedbackMaxArgsLength returns the max args preview length for tool feedback messages.
+// GetToolFeedbackMaxArgsLength returns the max visible text length for tool argument previews.
 func (d *AgentDefaults) GetToolFeedbackMaxArgsLength() int {
 	if d.ToolFeedback.MaxArgsLength > 0 {
 		return d.ToolFeedback.MaxArgsLength
@@ -298,6 +303,13 @@ func (d *AgentDefaults) GetToolFeedbackMaxArgsLength() int {
 // IsToolFeedbackEnabled returns true when tool feedback messages should be sent to the chat.
 func (d *AgentDefaults) IsToolFeedbackEnabled() bool {
 	return d.ToolFeedback.Enabled
+}
+
+// IsToolFeedbackSeparateMessagesEnabled returns true when each tool feedback
+// update should be sent as its own chat message instead of editing a single
+// in-place progress message.
+func (d *AgentDefaults) IsToolFeedbackSeparateMessagesEnabled() bool {
+	return d.ToolFeedback.SeparateMessages
 }
 
 // GetModelName returns the effective model name for the agent defaults.
@@ -505,6 +517,17 @@ type TeamsWebhookTarget struct {
 	Title      string       `json:"title,omitempty"      yaml:"-"`
 }
 
+type MQTTSettings struct {
+	Broker      string       `json:"broker"                 yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_BROKER"`
+	AgentID     string       `json:"agent_id"               yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_AGENT_ID"`
+	TopicPrefix string       `json:"topic_prefix,omitempty" yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_TOPIC_PREFIX"`
+	Username    SecureString `json:"username,omitzero"      yaml:"username,omitempty" env:"PICOCLAW_CHANNELS_MQTT_USERNAME"`
+	Password    SecureString `json:"password,omitzero"      yaml:"password,omitempty" env:"PICOCLAW_CHANNELS_MQTT_PASSWORD"`
+	ClientID    string       `json:"client_id,omitempty"    yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_CLIENT_ID"`
+	KeepAlive   int          `json:"keep_alive,omitempty"   yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_KEEP_ALIVE"`
+	QoS         int          `json:"qos,omitempty"          yaml:"-"                  env:"PICOCLAW_CHANNELS_MQTT_QOS"`
+}
+
 type HeartbeatConfig struct {
 	Enabled  bool `json:"enabled"  env:"PICOCLAW_HEARTBEAT_ENABLED"`
 	Interval int  `json:"interval" env:"PICOCLAW_HEARTBEAT_INTERVAL"` // minutes, min 5
@@ -524,15 +547,16 @@ type VoiceConfig struct {
 
 // ModelConfig represents a model-centric provider configuration.
 // It allows adding new providers (especially OpenAI-compatible ones) via configuration only.
-// The model field uses protocol prefix format: [protocol/]model-identifier
-// Supported protocols include openai, anthropic, antigravity, claude-cli,
+// The Model field may be either a plain model identifier or a provider-prefixed
+// identifier such as "openai/gpt-5.4" or "nvidia/z-ai/glm-5.1".
+// Supported providers include openai, anthropic, antigravity, claude-cli,
 // codex-cli, github-copilot, and named OpenAI-compatible protocols such as
 // groq, deepseek, modelscope, and novita.
-// Default protocol is "openai" if no prefix is specified.
 type ModelConfig struct {
 	// Required fields
 	ModelName string `json:"model_name"` // User-facing alias for the model
-	Model     string `json:"model"`      // Protocol/model-identifier (e.g., "openai/gpt-4o", "anthropic/claude-sonnet-4.6")
+	Provider  string `json:"provider"`   // Provider name for routing and selection. When empty, provider resolution infers it from Model.
+	Model     string `json:"model"`      // Model identifier, optionally provider-prefixed.
 
 	// HTTP-based providers
 	APIBase   string   `json:"api_base,omitempty"`  // API endpoint URL
@@ -545,12 +569,13 @@ type ModelConfig struct {
 	Workspace   string `json:"workspace,omitempty"`    // Workspace path for CLI-based providers
 
 	// Optional optimizations
-	RPM            int               `json:"rpm,omitempty"`              // Requests per minute limit
-	MaxTokensField string            `json:"max_tokens_field,omitempty"` // Field name for max tokens (e.g., "max_completion_tokens")
-	RequestTimeout int               `json:"request_timeout,omitempty"`
-	ThinkingLevel  string            `json:"thinking_level,omitempty"` // Extended thinking: off|low|medium|high|xhigh|adaptive
-	ExtraBody      map[string]any    `json:"extra_body,omitempty"`     // Additional fields to inject into request body
-	CustomHeaders  map[string]string `json:"custom_headers,omitempty"` // Additional headers to inject into every HTTP request
+	RPM                 int               `json:"rpm,omitempty"`              // Requests per minute limit
+	MaxTokensField      string            `json:"max_tokens_field,omitempty"` // Field name for max tokens (e.g., "max_completion_tokens")
+	RequestTimeout      int               `json:"request_timeout,omitempty"`
+	ThinkingLevel       string            `json:"thinking_level,omitempty"`        // Extended thinking: off|low|medium|high|xhigh|adaptive
+	ToolSchemaTransform string            `json:"tool_schema_transform,omitempty"` // Optional tool schema compatibility transform (e.g. "simple")
+	ExtraBody           map[string]any    `json:"extra_body,omitempty"`            // Additional fields to inject into request body
+	CustomHeaders       map[string]string `json:"custom_headers,omitempty"`        // Additional headers to inject into every HTTP request
 
 	APIKeys SecureStrings `json:"api_keys,omitzero" yaml:"api_keys,omitempty"` // API authentication keys (multiple keys for failover)
 
@@ -586,6 +611,9 @@ func (c *ModelConfig) Validate() error {
 	}
 	if c.Model == "" {
 		return fmt.Errorf("model is required")
+	}
+	if _, err := providercommon.NormalizeToolSchemaTransform(c.ToolSchemaTransform); err != nil {
+		return err
 	}
 	return nil
 }
@@ -820,6 +848,7 @@ type ToolsConfig struct {
 	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LIST_DIR_"`
 	Message         ToolConfig         `json:"message"           yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_MESSAGE_"`
 	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_FILE_"`
+	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SERIAL_"`
 	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_FILE_"`
 	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_TTS_"`
 	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_"`
@@ -993,7 +1022,9 @@ func LoadConfig(path string) (*Config, error) {
 		Version int `json:"version"`
 	}
 	if e := json.Unmarshal(data, &versionInfo); e != nil {
-		return nil, fmt.Errorf("failed to detect config version: %w", e)
+		e = wrapJSONError(data, e, "config.json")
+		logger.ErrorCF("config", formatDiagnosticLogMessage("Malformed config file", e), map[string]any{"path": path})
+		return nil, e
 	}
 	if len(data) <= 10 {
 		logger.Warn(fmt.Sprintf("content is [%s]", string(data)))
@@ -1008,10 +1039,23 @@ func LoadConfig(path string) (*Config, error) {
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
 		)
+		if err = validateLegacyConfigDiagnostics(data); err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
+			return nil, err
+		}
 
 		var m map[string]any
 		m, err = loadConfigMap(path)
 		if err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
 			return nil, err
 		}
 
@@ -1053,10 +1097,23 @@ func LoadConfig(path string) (*Config, error) {
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
 		)
+		if err = validateLegacyConfigDiagnostics(data); err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
+			return nil, err
+		}
 
 		var m map[string]any
 		m, err = loadConfigMap(path)
 		if err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
 			return nil, err
 		}
 
@@ -1098,9 +1155,22 @@ func LoadConfig(path string) (*Config, error) {
 			"config migrate start",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
 		)
+		if err = validateLegacyConfigDiagnostics(data); err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
+			return nil, err
+		}
 		var m map[string]any
 		m, err = loadConfigMap(path)
 		if err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
 			return nil, err
 		}
 		migrateErr := migrateV2ToV3(m)
@@ -1135,6 +1205,11 @@ func LoadConfig(path string) (*Config, error) {
 		// Current version
 		cfg, err = loadConfig(data)
 		if err != nil {
+			logger.ErrorCF(
+				"config",
+				formatDiagnosticLogMessage("Failed to load config", err),
+				map[string]any{"path": path},
+			)
 			return nil, err
 		}
 		// Load security configuration
@@ -1416,22 +1491,24 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 
 			// Create a copy for the additional key
 			additionalEntry := &ModelConfig{
-				ModelName:      expandedName,
-				Model:          m.Model,
-				APIBase:        m.APIBase,
-				APIKeys:        SimpleSecureStrings(keys[i]),
-				Proxy:          m.Proxy,
-				AuthMethod:     m.AuthMethod,
-				ConnectMode:    m.ConnectMode,
-				Workspace:      m.Workspace,
-				RPM:            m.RPM,
-				MaxTokensField: m.MaxTokensField,
-				RequestTimeout: m.RequestTimeout,
-				ThinkingLevel:  m.ThinkingLevel,
-				ExtraBody:      m.ExtraBody,
-				CustomHeaders:  m.CustomHeaders,
-				UserAgent:      m.UserAgent,
-				isVirtual:      true,
+				ModelName:           expandedName,
+				Provider:            m.Provider,
+				Model:               m.Model,
+				APIBase:             m.APIBase,
+				APIKeys:             SimpleSecureStrings(keys[i]),
+				Proxy:               m.Proxy,
+				AuthMethod:          m.AuthMethod,
+				ConnectMode:         m.ConnectMode,
+				Workspace:           m.Workspace,
+				RPM:                 m.RPM,
+				MaxTokensField:      m.MaxTokensField,
+				RequestTimeout:      m.RequestTimeout,
+				ThinkingLevel:       m.ThinkingLevel,
+				ToolSchemaTransform: m.ToolSchemaTransform,
+				ExtraBody:           m.ExtraBody,
+				CustomHeaders:       m.CustomHeaders,
+				UserAgent:           m.UserAgent,
+				isVirtual:           true,
 			}
 			expanded = append(expanded, additionalEntry)
 			fallbackNames = append(fallbackNames, expandedName)
@@ -1439,21 +1516,23 @@ func expandMultiKeyModels(models []*ModelConfig) []*ModelConfig {
 
 		// Create the primary entry with first key and fallbacks
 		primaryEntry := &ModelConfig{
-			ModelName:      originalName,
-			Model:          m.Model,
-			APIBase:        m.APIBase,
-			Proxy:          m.Proxy,
-			AuthMethod:     m.AuthMethod,
-			ConnectMode:    m.ConnectMode,
-			Workspace:      m.Workspace,
-			RPM:            m.RPM,
-			MaxTokensField: m.MaxTokensField,
-			RequestTimeout: m.RequestTimeout,
-			ThinkingLevel:  m.ThinkingLevel,
-			ExtraBody:      m.ExtraBody,
-			CustomHeaders:  m.CustomHeaders,
-			UserAgent:      m.UserAgent,
-			APIKeys:        SimpleSecureStrings(keys[0]),
+			ModelName:           originalName,
+			Provider:            m.Provider,
+			Model:               m.Model,
+			APIBase:             m.APIBase,
+			Proxy:               m.Proxy,
+			AuthMethod:          m.AuthMethod,
+			ConnectMode:         m.ConnectMode,
+			Workspace:           m.Workspace,
+			RPM:                 m.RPM,
+			MaxTokensField:      m.MaxTokensField,
+			RequestTimeout:      m.RequestTimeout,
+			ThinkingLevel:       m.ThinkingLevel,
+			ToolSchemaTransform: m.ToolSchemaTransform,
+			ExtraBody:           m.ExtraBody,
+			CustomHeaders:       m.CustomHeaders,
+			UserAgent:           m.UserAgent,
+			APIKeys:             SimpleSecureStrings(keys[0]),
 		}
 
 		// Prepend new fallbacks to existing ones
@@ -1497,6 +1576,8 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.Message.Enabled
 	case "read_file":
 		return t.ReadFile.Enabled
+	case "serial":
+		return t.Serial.Enabled
 	case "spawn":
 		return t.Spawn.Enabled
 	case "spawn_status":

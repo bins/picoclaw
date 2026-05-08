@@ -291,24 +291,6 @@ After this one-time step, `picoclaw-launcher` will open normally on subsequent l
 
 </details>
 
-### 💻 TUI Launcher (Recommended for Headless / SSH)
-
-The TUI (Terminal UI) Launcher provides a full-featured terminal interface for configuration and management. Ideal for servers, Raspberry Pi, and other headless environments.
-
-```bash
-picoclaw-launcher-tui
-```
-
-<p align="center">
-<img src="assets/launcher-tui.jpg" alt="TUI Launcher" width="600">
-</p>
-
-**Getting started:**
-
-Use the TUI menus to: **1)** Configure a Provider -> **2)** Configure a Channel -> **3)** Start the Gateway -> **4)** Chat!
-
-For detailed TUI documentation, see [docs.picoclaw.io](https://docs.picoclaw.io).
-
 <a id="-run-on-old-android-phones"></a>
 ### 📱 Android
 
@@ -465,7 +447,7 @@ For full provider configuration details, see [Providers & Models](docs/guides/pr
 
 ## 💬 Channels (Chat Apps)
 
-Talk to your PicoClaw through 18+ messaging platforms:
+Talk to your PicoClaw through 19+ messaging platforms:
 
 | Channel | Setup | Protocol | Docs |
 |---------|-------|----------|------|
@@ -483,6 +465,7 @@ Talk to your PicoClaw through 18+ messaging platforms:
 | **VK** | Easy (group token) | Long Poll | [Guide](docs/channels/vk/README.md) |
 | **IRC** | Medium (server + nick) | IRC protocol | [Guide](docs/guides/chat-apps.md#irc) |
 | **OneBot** | Medium (WebSocket URL) | OneBot v11 | [Guide](docs/channels/onebot/README.md) |
+| **MQTT** | Easy (broker + agent_id) | MQTT pub/sub | [Guide](docs/channels/mqtt/README.md) |
 | **MaixCam** | Easy (enable) | TCP socket | [Guide](docs/channels/maixcam/README.md) |
 | **Pico** | Easy (enable) | Native protocol | Built-in |
 | **Pico Client** | Easy (WebSocket URL) | WebSocket | Built-in |
@@ -502,7 +485,7 @@ PicoClaw can search the web to provide up-to-date information. Configure in `too
 | Search Engine | API Key | Free Tier | Link |
 |--------------|---------|-----------|------|
 | DuckDuckGo | Not needed | Unlimited | Built-in fallback |
-| [Baidu Search](https://cloud.baidu.com/doc/qianfan-api/s/Wmbq4z7e5) | Required | 1000 queries/day | AI-powered, China-optimized |
+| [Baidu Search](https://cloud.baidu.com/doc/qianfan-api/s/Wmbq4z7e5) | Required | 1500/month (daily allocation) | AI-powered, China-optimized |
 | [Tavily](https://tavily.com) | Required | 1000 queries/month | Optimized for AI Agents |
 | [Brave Search](https://brave.com/search/api) | Required | 2000 queries/month | Fast and private |
 | [Perplexity](https://www.perplexity.ai) | Required | Paid | AI-powered search |
@@ -571,7 +554,20 @@ PicoClaw natively supports [MCP](https://modelcontextprotocol.io/) — connect a
 }
 ```
 
-For full MCP configuration (stdio, SSE, HTTP transports, Tool Discovery), see [Tools Configuration - MCP](docs/reference/tools_configuration.md#mcp-tool).
+You can manage common MCP setups directly from the CLI instead of editing JSON by hand:
+
+```bash
+picoclaw mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /tmp
+picoclaw mcp list
+picoclaw mcp test filesystem
+```
+
+`picoclaw mcp` is a configuration manager: it updates `config.json` under `tools.mcp.servers`, but it does not keep the server process running itself.
+
+Use `picoclaw mcp edit` when you need advanced fields that are not covered by `picoclaw mcp add`.
+For example, `picoclaw mcp add` supports `--deferred` and `--env-file`, while `picoclaw mcp edit` is still useful for direct JSON editing and uncommon MCP settings.
+
+For full MCP configuration (stdio, SSE, HTTP transports, Tool Discovery), see [Tools Configuration - MCP](docs/reference/tools_configuration.md#mcp-tool). For CLI usage and examples, see [MCP Server CLI](docs/reference/mcp-cli.md).
 
 ## <img src="assets/clawdchat-icon.png" width="24" height="24" alt="ClawdChat"> Join the Agent Social Network
 
@@ -591,6 +587,11 @@ Connect PicoClaw to the Agent Social Network simply by sending a single message 
 | `picoclaw status`         | Show status                      |
 | `picoclaw version`        | Show version info                |
 | `picoclaw model`          | View or switch the default model |
+| `picoclaw mcp list`       | List configured MCP servers      |
+| `picoclaw mcp add ...`    | Add or update an MCP server entry |
+| `picoclaw mcp test`       | Probe a configured MCP server    |
+| `picoclaw mcp edit`       | Open config for advanced MCP editing |
+| `picoclaw mcp remove`     | Remove an MCP server entry       |
 | `picoclaw cron list`      | List all scheduled jobs          |
 | `picoclaw cron add ...`   | Add a scheduled job              |
 | `picoclaw cron disable`   | Disable a scheduled job          |
@@ -617,8 +618,9 @@ For detailed guides beyond this README:
 | Topic | Description |
 |-------|-------------|
 | [Docker & Quick Start](docs/guides/docker.md) | Docker Compose setup, Launcher/Agent modes |
-| [Chat Apps](docs/guides/chat-apps.md) | All 17+ channel setup guides |
+| [Chat Apps](docs/guides/chat-apps.md) | All 18+ channel setup guides |
 | [Configuration](docs/guides/configuration.md) | Environment variables, workspace layout, security sandbox |
+| [MCP Server CLI](docs/reference/mcp-cli.md) | Add, list, test, edit, and remove MCP server entries from the CLI |
 | [Scheduled Tasks and Cron Jobs](docs/reference/cron.md) | Cron schedule types, deliver modes, command gates, job storage |
 | [Providers & Models](docs/guides/providers.md) | 30+ LLM providers, model routing, model_list configuration |
 | [Spawn & Async Tasks](docs/guides/spawn-tasks.md) | Quick tasks, long tasks with spawn, async sub-agent orchestration |
