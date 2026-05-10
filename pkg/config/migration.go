@@ -186,7 +186,21 @@ func migrateV0ToV1(m map[string]any) error {
 			if mVal, ok := model.(map[string]any); ok {
 				if ss := toUniqueStrings(mVal["api_key"], mVal["api_keys"]); len(ss) > 0 {
 					mVal["api_keys"] = ss
-					delete(mVal, "api_key")
+				}
+				delete(mVal, "api_key")
+			}
+		}
+	}
+
+	// Convert web tools api_key → api_keys
+	if tools, ok := m["tools"].(map[string]any); ok {
+		if web, ok := tools["web"].(map[string]any); ok {
+			for _, toolName := range []string{"brave", "perplexity", "tavily"} {
+				if tool, ok := web[toolName].(map[string]any); ok {
+					if ss := toUniqueStrings(tool["api_key"], tool["api_keys"]); len(ss) > 0 {
+						tool["api_keys"] = ss
+					}
+					delete(tool, "api_key")
 				}
 			}
 		}
@@ -266,8 +280,8 @@ func migrateV1ToV2(m map[string]any) error {
 			if mVal, ok := model.(map[string]any); ok {
 				if ss := toUniqueStrings(mVal["api_key"], mVal["api_keys"]); len(ss) > 0 {
 					mVal["api_keys"] = ss
-					delete(mVal, "api_key")
 				}
+				delete(mVal, "api_key")
 			}
 		}
 
@@ -301,6 +315,20 @@ func migrateV1ToV2(m map[string]any) error {
 		}
 	} else {
 		logger.Warnf("model_list is not a slice: %#v", m["model_list"])
+	}
+
+	// Convert web tools api_key → api_keys
+	if tools, ok := m["tools"].(map[string]any); ok {
+		if web, ok := tools["web"].(map[string]any); ok {
+			for _, toolName := range []string{"brave", "perplexity", "tavily"} {
+				if tool, ok := web[toolName].(map[string]any); ok {
+					if ss := toUniqueStrings(tool["api_key"], tool["api_keys"]); len(ss) > 0 {
+						tool["api_keys"] = ss
+					}
+					delete(tool, "api_key")
+				}
+			}
+		}
 	}
 
 	m["version"] = 2
@@ -363,6 +391,20 @@ func migrateV2ToV3(m map[string]any) error {
 		}
 
 		m["channel_list"] = channels
+	}
+
+	// Convert web tools api_key → api_keys
+	if tools, ok := m["tools"].(map[string]any); ok {
+		if web, ok := tools["web"].(map[string]any); ok {
+			for _, toolName := range []string{"brave", "perplexity", "tavily"} {
+				if tool, ok := web[toolName].(map[string]any); ok {
+					if ss := toUniqueStrings(tool["api_key"], tool["api_keys"]); len(ss) > 0 {
+						tool["api_keys"] = ss
+					}
+					delete(tool, "api_key")
+				}
+			}
+		}
 	}
 
 	m["version"] = CurrentVersion
