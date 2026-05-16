@@ -157,6 +157,10 @@ func copyTree(src, dst string) error {
 			return os.MkdirAll(target, entry.Mode())
 		}
 
+		if entry.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
 		return copyFile(path, target, entry.Mode())
 	})
 }
