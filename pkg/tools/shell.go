@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -417,6 +418,16 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	done := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.ErrorCF("shell", "cmd.Wait goroutine panic recovered",
+					map[string]any{
+						"panic": fmt.Sprintf("%v", r),
+						"stack": string(debug.Stack()),
+					})
+				done <- fmt.Errorf("panic in cmd.Wait: %v", r)
+			}
+		}()
 		done <- cmd.Wait()
 	}()
 
@@ -558,7 +569,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	// with synchronous exec runs.
 	if err := isolation.Start(cmd); err != nil {
 		if session.ptyMaster != nil {
-			session.ptyMaster.Close()
+			_ = session.ptyMaster.Close()
 		}
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
 	}
@@ -573,6 +584,18 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	// so we need cmd.Wait() in a separate goroutine to detect process exit.
 	if session.PTY && session.ptyMaster != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.ErrorCF("shell", "PTY cmd.Wait goroutine panic recovered",
+						map[string]any{
+							"panic": fmt.Sprintf("%v", r),
+							"stack": string(debug.Stack()),
+						})
+					session.mu.Lock()
+					session.Status = "error"
+					session.mu.Unlock()
+				}
+			}()
 			cmd.Wait() // Wait for process to exit
 			session.mu.Lock()
 			if cmd.ProcessState != nil {
@@ -583,6 +606,15 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		}()
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.ErrorCF("shell", "PTY read goroutine panic recovered",
+						map[string]any{
+							"panic": fmt.Sprintf("%v", r),
+							"stack": string(debug.Stack()),
+						})
+				}
+			}()
 			buf := make([]byte, 4096)
 			for {
 				n, err := session.ptyMaster.Read(buf)
@@ -613,6 +645,15 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		// When Read() returns EOF (pipe closed), we break.
 		// When process exits, OS closes pipe write end → Read() returns EOF → we exit.
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.ErrorCF("shell", "pipe read goroutine panic recovered",
+						map[string]any{
+							"panic": fmt.Sprintf("%v", r),
+							"stack": string(debug.Stack()),
+						})
+				}
+			}()
 			buf := make([]byte, 4096)
 
 			// Read stdout
@@ -657,7 +698,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 			// All pipes closed, get exit status
 			if stdinWriter != nil {
-				stdinWriter.Close()
+				_ = stdinWriter.Close()
 			}
 			cmd.Wait()
 
@@ -1094,36 +1135,35 @@ func expandPowerShellEnvVars(cmd string) string {
 	})
 }
 
+func (t *ExecTool) commandMatchesAllowPattern(lower string) bool {
+	for _, pattern := range t.allowPatterns {
+		if pattern.MatchString(lower) {
+			return true
+		}
+	}
+	for _, pattern := range t.customAllowPatterns {
+		if pattern.MatchString(lower) {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *ExecTool) guardCommand(command, cwd string) string {
 	cmd := strings.TrimSpace(command)
 	lower := strings.ToLower(cmd)
 
-	// Custom allow patterns exempt a command from deny checks.
-	explicitlyAllowed := false
-	for _, pattern := range t.customAllowPatterns {
+	// Deny patterns always apply, even when a command matches a custom allow rule.
+	// Custom allow rules can permit a command, but must not disable secret-safety
+	// deny rules such as jq env access checks (#3079).
+	for _, pattern := range t.denyPatterns {
 		if pattern.MatchString(lower) {
-			explicitlyAllowed = true
-			break
-		}
-	}
-
-	if !explicitlyAllowed {
-		for _, pattern := range t.denyPatterns {
-			if pattern.MatchString(lower) {
-				return "Command blocked by safety guard (dangerous pattern detected)"
-			}
+			return "Command blocked by safety guard (dangerous pattern detected)"
 		}
 	}
 
 	if len(t.allowPatterns) > 0 {
-		allowed := false
-		for _, pattern := range t.allowPatterns {
-			if pattern.MatchString(lower) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if !t.commandMatchesAllowPattern(lower) {
 			return "Command blocked by safety guard (not in allowlist)"
 		}
 	}

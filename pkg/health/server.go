@@ -168,7 +168,7 @@ func (s *Server) reloadHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "reload triggered"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "reload triggered"})
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +182,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		PID:    os.Getpid(),
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +196,7 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !ready {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(StatusResponse{
+		_ = json.NewEncoder(w).Encode(StatusResponse{
 			Status: "not ready",
 			Checks: checks,
 		})
@@ -206,7 +206,7 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 	for _, check := range checks {
 		if check.Status == "fail" {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(StatusResponse{
+			_ = json.NewEncoder(w).Encode(StatusResponse{
 				Status: "not ready",
 				Checks: checks,
 			})
@@ -216,7 +216,7 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	uptime := time.Since(s.startTime)
-	json.NewEncoder(w).Encode(StatusResponse{
+	_ = json.NewEncoder(w).Encode(StatusResponse{
 		Status: "ready",
 		Uptime: uptime.String(),
 		Checks: checks,

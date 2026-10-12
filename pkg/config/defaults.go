@@ -108,6 +108,14 @@ func DefaultConfig() *Config {
 				APIBase:   "https://api.venice.ai/api/v1",
 			},
 
+			// NEAR AI Cloud TEE inference - https://near.ai
+			{
+				ModelName: "nearai-glm",
+				Provider:  "nearai",
+				Model:     "zai-org/GLM-5.1-FP8",
+				APIBase:   "https://cloud-api.near.ai/v1",
+			},
+
 			// Google Gemini - https://ai.google.dev/
 			{
 				ModelName: "gemini-2.0-flash",
@@ -543,6 +551,13 @@ func defaultChannels() ChannelsConfig {
 			"settings": map[string]any{
 				"homeserver":     "https://matrix.org",
 				"join_on_invite": true,
+			},
+		},
+		"deltachat": map[string]any{
+			"group_trigger": map[string]any{"mention_only": true},
+			"settings": map[string]any{
+				"email":        "@nine.testrun.org",
+				"display_name": "PicoClaw Bot",
 			},
 		},
 		"line": map[string]any{
